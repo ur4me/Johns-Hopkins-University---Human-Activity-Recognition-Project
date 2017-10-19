@@ -54,7 +54,7 @@ The highly correlated variables are shown in dark colors in the graph above. To 
 ## Train split
 I will split train set to evaluate model with cross validation.
 ```{r}
-#split train
+#split train 
 set.seed(54321)
 outcome <- train1$classe
 
