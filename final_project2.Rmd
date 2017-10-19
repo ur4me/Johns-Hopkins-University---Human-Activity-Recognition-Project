@@ -1,0 +1,118 @@
+---
+title: "Prediction Assignment Writeup"
+author: "Jin Yong Kim"
+date: "20 October 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Prediction Assignment Writeup
+
+This project is about Human Activity Recognition and I need to make a model that predicts "classe". The data for this project come from this source: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har. I Will use Extreme gradient boosting to make a model with cross validation.
+
+
+## Preparation
+
+```{r}
+library(caret)
+library(xgboost)
+library(dplyr)
+library(Matrix)
+library(e1071)
+library(corrplot)
+
+#preparation
+setwd("C:/test")
+
+train <- read.csv('pml-training.csv', na.strings = c("", "NA"))
+test <- read.csv('pml-testing.csv', na.strings = c("", "NA"))
+
+train1 <- train[,colnames(train)[colSums(is.na(train)) == 0]]
+test1 <- test[colnames(test)[colSums(is.na(test)) == 0]]
+
+train1 <- train1[,-c(1,6)]
+test1 <- test1[,-c(1,6,60)]
+
+train1[] <- lapply(train1, as.numeric)
+test1[]<-lapply(test1, as.numeric)
+```
+
+## Correlation Analysis
+
+I would like to see correlation among variables before proceeding to the modeling procedures.
+```{r}
+corMatrix <- cor(train1[, -58])
+corrplot(corMatrix, order = "FPC", method = "color", type = "lower", 
+         tl.cex = 0.6, tl.col = rgb(0, 0, 0))
+```
+
+The highly correlated variables are shown in dark colors in the graph above. To make an evem more compact analysis, a PCA (Principal Components Analysis) could be performed as pre-processing step to the datasets. Nevertheless, as the correlations are quite few, this step will not be applied for this assignment. 
+
+## Train split
+I will split train set to evaluate model with cross validation.
+```{r}
+#split train
+set.seed(54321)
+outcome <- train1$classe
+
+partition <- createDataPartition(y=outcome,
+                                 p=.7,
+                                 list=F)
+training <- train1[partition,]
+testing <- train1[-partition,]
+```
+
+## Making Extreme Gradient Boosting Model
+```{r}
+#xgb matrix
+withoutRV <- training %>% select(-classe)
+dtrain <- xgb.DMatrix(as.matrix(withoutRV),label = training$classe-1)
+withoutRV1 <- testing %>% select(-classe)
+dtest <- xgb.DMatrix(as.matrix(withoutRV1))
+
+#xgboost parameters
+xgb_params <- list(colsample_bytree = 0.7, #variables per tree 
+                   subsample = 0.8, #data subset per tree 
+                   booster = "gbtree",
+                   max_depth = 10, #tree levels
+                   eta = 0.12, #shrinkage
+                   eval_metric = "mlogloss", 
+                   objective = "multi:softmax",
+                   num_class=5,
+                   gamma=0)    
+
+#cross-validation and checking iterations
+set.seed(4321)
+xgb_cv <- xgb.cv(xgb_params,dtrain,early_stopping_rounds = 10, nfold = 4, print_every_n = 5, nrounds=1000) 
+```
+669 was the best iteration.
+
+## Evaluation
+```{r}
+#predict the model
+gb_dt <- xgb.train(params = xgb_params,
+                   data = dtrain,
+                   verbose = 1, maximize =F,
+                   nrounds = 669)
+
+prediction <- predict(gb_dt,dtest)
+
+#confustion matrix
+confusionMatrix(prediction, testing$classe-1)
+```
+Accuracy is 0.9993 which seems to be quite high.
+
+## Prediction
+Finally, I will predict the original test set to predict "Classe".
+
+```{r}
+#real prediction
+drealtest <- xgb.DMatrix(as.matrix(test1))
+prediction <- predict(gb_dt,drealtest)
+prediction <- as.factor(prediction)
+levels(prediction) <- c('a','b','c','d','e')
+prediction
+```
